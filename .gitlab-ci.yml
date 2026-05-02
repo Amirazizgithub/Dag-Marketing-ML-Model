@@ -1,0 +1,51 @@
+# =====================================================================
+# Root GitLab CI Configuration
+# =====================================================================
+
+stages:
+  - .pre
+  - build
+  - check_format
+  - api_test
+  - deploy
+  - .post
+
+workflow:
+  name: "${PIPELINE_DISPLAY_NAME}"
+  rules:
+    # 1. Production: Triggered on merges/pushes to 'production'
+    - if: '$CI_COMMIT_BRANCH == "production"'
+      variables:
+        PIPELINE_DISPLAY_NAME: "PROD: Deploying to Cloud Run"
+        ENV_NAME: "production"
+      when: always
+
+    # 2. Staging: Triggered on merges/pushes to 'staging'
+    - if: '$CI_COMMIT_BRANCH == "staging"'
+      variables:
+        PIPELINE_DISPLAY_NAME: "STAG: Deploying to Cloud Run"
+        ENV_NAME: "staging"
+      when: always
+
+    # 3. Development: Triggered on merges/pushes to 'development'
+    - if: '$CI_COMMIT_BRANCH == "development"'
+      variables:
+        PIPELINE_DISPLAY_NAME: "DEV: Formatting and Linting"
+        ENV_NAME: "development"
+      when: always
+
+# Include branch-specific logic
+include:
+  - local: 'gitlab-pipelines/.gitlab-ci-dev.yml'
+    rules: [{ if: '$CI_COMMIT_BRANCH == "development"' }]
+  - local: 'gitlab-pipelines/.gitlab-ci-stag.yml'
+    rules: [{ if: '$CI_COMMIT_BRANCH == "staging"' }]
+  - local: 'gitlab-pipelines/.gitlab-ci-prod.yml'
+    rules: [{ if: '$CI_COMMIT_BRANCH == "production"' }]
+
+# Global Pre-flight check
+gitlab-api-ready:
+  stage: .pre
+  image: alpine:latest
+  script:
+    - echo "Starting $PIPELINE_DISPLAY_NAME for branch $CI_COMMIT_BRANCH"

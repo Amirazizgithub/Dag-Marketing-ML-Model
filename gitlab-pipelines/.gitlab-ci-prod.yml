@@ -1,0 +1,56 @@
+# =====================================================================
+# cicd-pipelines/.gitlab-ci-pro.yml 
+# this pipeline is for production environment for production deployment 
+# =====================================================================
+# Define variables at the top so BOTH jobs can use them
+variables:
+  ENVIRONMENT: "production"
+  IMAGE_TAG: "latest"
+  AR_REPOSITORY: "dag-marketing-ml-model-${ENVIRONMENT}"
+  IMAGE_AR_PATH: "${CENTRAL_PROJECT_REGION}-docker.pkg.dev/${CENTRAL_PROJECT_ID}/${AR_REPOSITORY}/dag-marketing-ml-model:${IMAGE_TAG}"
+  GCP_CLOUD_RUN_SERVICE_NAME: "dag-marketing-ml-model"
+
+build-and-push-image:
+  stage: build
+  image: gcr.io/google.com/cloudsdktool/cloud-sdk:latest
+  services:
+    - docker:24.0.5-dind
+  variables:
+    DOCKER_HOST: "tcp://docker:2375"
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - apt-get update && apt-get install -y docker.io
+    - gcloud auth activate-service-account --key-file="$CENTRAL_SA_KEY"
+    - gcloud auth configure-docker "${CENTRAL_PROJECT_REGION}-docker.pkg.dev" --quiet
+  script:
+    - TIMESTAMP=$(date +%Y/%m/%d-%H:%M:%S)
+    - echo "Build process started at ${TIMESTAMP}..."
+    - docker build -t "${IMAGE_AR_PATH}" .
+    - docker push "${IMAGE_AR_PATH}"
+    - echo "Build process completed at ${TIMESTAMP}..."
+
+  retry: 1
+  interruptible: false
+  only:
+    - production
+
+deploy-to-cloud_run:
+  stage: deploy
+  needs: ["build-and-push-image"]
+  image: gcr.io/google.com/cloudsdktool/cloud-sdk:latest
+  before_script:
+    - gcloud auth activate-service-account --key-file="$CENTRAL_SA_KEY"
+    - gcloud config set project "${CENTRAL_PROJECT_ID}"
+  script:
+    - TIMESTAMP=$(date +%Y/%m/%d-%H:%M:%S)
+    - echo "Deploy process started at ${TIMESTAMP}..."
+    - gcloud run deploy $GCP_CLOUD_RUN_SERVICE_NAME 
+      --image=$IMAGE_AR_PATH 
+      --platform=managed 
+      --region=$CENTRAL_PROJECT_REGION
+    - echo "Deployed image to Cloud Run."
+
+  retry: 1
+  interruptible: false
+  only:
+    - production
